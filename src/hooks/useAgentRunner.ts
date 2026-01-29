@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Agent } from '../agent/agent.js';
 import { InMemoryChatHistory } from '../utils/in-memory-chat-history.js';
+import { isExaModel, runExaModel } from '../model/exa-answer.js';
 import type { HistoryItem, WorkingState } from '../components/index.js';
 import type { AgentConfig, AgentEvent, DoneEvent } from '../agent/index.js';
 
@@ -155,12 +156,22 @@ export function useAgentRunner(
     setWorkingState({ status: 'thinking' });
     
     try {
-      const agent = await Agent.create({
-        ...agentConfig,
-        signal: abortController.signal,
-      });
-      const stream = agent.run(query, inMemoryChatHistoryRef.current!);
-      
+      // Check if using Exa model - bypass agent loop entirely
+      const model = agentConfig.model ?? '';
+      let stream: AsyncGenerator<AgentEvent>;
+
+      if (isExaModel(model)) {
+        // Use Exa directly - fast path
+        stream = runExaModel(query, model);
+      } else {
+        // Standard agent path
+        const agent = await Agent.create({
+          ...agentConfig,
+          signal: abortController.signal,
+        });
+        stream = agent.run(query, inMemoryChatHistoryRef.current!);
+      }
+
       for await (const event of stream) {
         // Capture the final answer from the done event
         if (event.type === 'done') {
@@ -168,7 +179,7 @@ export function useAgentRunner(
         }
         handleEvent(event);
       }
-      
+
       // Return the answer if we got one
       if (finalAnswer) {
         return { answer: finalAnswer };

@@ -18,6 +18,7 @@ import { getApiKeyNameForProvider, getProviderDisplayName } from './utils/env.js
 import { useModelSelection } from './hooks/useModelSelection.js';
 import { useAgentRunner } from './hooks/useAgentRunner.js';
 import { useInputHistory } from './hooks/useInputHistory.js';
+import { EXA_QUICK_DOCS } from './model/exa-answer.js';
 
 // Load environment variables
 config({ quiet: true });
@@ -91,7 +92,13 @@ export function CLI() {
       startSelection();
       return;
     }
-    
+
+    // Handle exa-docs command - direct output, no agent
+    if (query === '/exa-docs') {
+      console.log(EXA_QUICK_DOCS);
+      return;
+    }
+
     // Ignore if not idle (processing or in selection flow)
     if (isInSelectionFlow() || workingState.status !== 'idle') return;
     

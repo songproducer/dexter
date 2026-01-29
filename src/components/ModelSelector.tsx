@@ -39,6 +39,11 @@ const PROVIDERS: Provider[] = [
     providerId: 'lmstudio',
     models: [], // Populated dynamically from local LM Studio API
   },
+  {
+    displayName: 'Exa (Fast Search)',
+    providerId: 'exa',
+    models: ['answer', 'search'], // answer = LLM-generated answer, search = raw search results
+  },
 ];
 
 export function getModelsForProvider(providerId: string): string[] {

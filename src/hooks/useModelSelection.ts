@@ -140,7 +140,8 @@ export function useModelSelection(
       return;
     }
     
-    // For Ollama and LM Studio, skip API key flow entirely
+    // For Ollama, LM Studio, and Exa, skip API key flow entirely
+    // (They use env vars directly: OLLAMA_BASE_URL, LMSTUDIO_BASE_URL, EXASEARCH_API_KEY)
     if (pendingProvider === 'ollama') {
       const fullModelId = `ollama:${modelId}`;
       completeModelSwitch(pendingProvider, fullModelId);
@@ -149,6 +150,12 @@ export function useModelSelection(
 
     if (pendingProvider === 'lmstudio') {
       const fullModelId = `lmstudio:${modelId}`;
+      completeModelSwitch(pendingProvider, fullModelId);
+      return;
+    }
+
+    if (pendingProvider === 'exa') {
+      const fullModelId = `exa:${modelId}`;
       completeModelSwitch(pendingProvider, fullModelId);
       return;
     }
