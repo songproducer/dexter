@@ -9,6 +9,43 @@ import { InMemoryChatHistory } from '../utils/in-memory-chat-history.js';
 import { getToolDescription } from '../utils/tool-description.js';
 import type { AgentConfig, AgentEvent, ToolStartEvent, ToolEndEvent, ToolErrorEvent } from '../agent/types.js';
 
+/**
+ * Check if a model is a local model that doesn't support native tool calling.
+ */
+function isLocalModel(model: string): boolean {
+  return model.startsWith('lmstudio:') || model.startsWith('ollama:');
+}
+
+/**
+ * Heuristic to detect if a query needs financial data.
+ * Returns the tool name and args if a tool should be called, null otherwise.
+ */
+function detectFinancialQuery(query: string): { tool: string; args: Record<string, unknown> } | null {
+  const q = query.toLowerCase();
+
+  // Financial keywords that suggest we need to call financial_search
+  const financialKeywords = [
+    'price', 'stock', 'share', 'ticker', 'market cap', 'revenue', 'earnings',
+    'income', 'balance sheet', 'cash flow', 'p/e', 'pe ratio', 'eps', 'dividend',
+    'financial', 'valuation', 'profit', 'loss', 'quarterly', 'annual', 'fiscal',
+    'sec', 'filing', '10-k', '10-q', '8-k', 'insider', 'analyst', 'estimate',
+    'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'cryptocurrency',
+    'tezos', 'solana', 'cardano', 'dogecoin', 'litecoin'
+  ];
+
+  // Check if query contains financial keywords
+  const hasFinancialKeyword = financialKeywords.some(kw => q.includes(kw));
+
+  // Check for stock tickers (1-5 uppercase letters as a word)
+  const hasTicker = /\b[A-Z]{1,5}\b/.test(query);
+
+  if (hasFinancialKeyword || hasTicker) {
+    return { tool: 'financial_search', args: { query } };
+  }
+
+  return null;
+}
+
 
 const DEFAULT_MAX_ITERATIONS = 10;
 
@@ -79,8 +116,30 @@ export class Agent {
         yield { type: 'thinking', message: responseText };
       }
 
-      // No tool calls = ready to generate final answer
+      // No tool calls = ready to generate final answer (or local model needs help)
       if (!hasToolCalls(response)) {
+        // For local models on first iteration, use heuristic tool detection
+        if (isLocalModel(this.model) && iteration === 1 && !scratchpad.hasToolResults()) {
+          const heuristicTool = detectFinancialQuery(query);
+          if (heuristicTool) {
+            // Execute the heuristic-detected tool
+            const generator = this.executeToolCall(
+              heuristicTool.tool,
+              heuristicTool.args,
+              query,
+              scratchpad
+            );
+            let result = await generator.next();
+            while (!result.done) {
+              yield result.value;
+              result = await generator.next();
+            }
+            // Continue to next iteration to process results
+            currentPrompt = buildIterationPrompt(query, scratchpad.getToolSummaries());
+            continue;
+          }
+        }
+
         // If no tools were called at all, just use the direct response
         // This handles greetings, clarifying questions, etc.
         if (!scratchpad.hasToolResults() && responseText) {

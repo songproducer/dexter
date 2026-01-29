@@ -17,6 +17,152 @@ import { getCryptoPriceSnapshot, getCryptoPrices, getCryptoTickers } from './cry
 import { getInsiderTrades } from './insider_trades.js';
 import { getCompanyFacts } from './company_facts.js';
 
+/**
+ * Check if we should use heuristic routing instead of LLM-based routing.
+ * Local models (LM Studio, Ollama) typically don't support tool/function calling,
+ * so we always use heuristic routing for them.
+ */
+function shouldUseHeuristicRouting(model: string): boolean {
+  return model.startsWith('lmstudio:') || model.startsWith('ollama:');
+}
+
+/**
+ * Heuristic-based query routing for local models without tool calling support.
+ * Maps query keywords to appropriate finance tools.
+ */
+function heuristicRoute(query: string): { tool: string; args: Record<string, unknown> }[] {
+  const q = query.toLowerCase();
+  const results: { tool: string; args: Record<string, unknown> }[] = [];
+
+  // Extract ticker (uppercase 1-5 letters, common stock ticker pattern)
+  const tickerMatch = query.match(/\b([A-Z]{1,5})\b/);
+  const ticker = tickerMatch?.[1];
+
+  // Crypto detection - map common names to their ticker symbols (FMP uses no hyphen format)
+  const cryptoNameToTicker: Record<string, string> = {
+    bitcoin: 'BTCUSD',
+    btc: 'BTCUSD',
+    ethereum: 'ETHUSD',
+    eth: 'ETHUSD',
+    tezos: 'XTZUSD',
+    xtz: 'XTZUSD',
+    solana: 'SOLUSD',
+    sol: 'SOLUSD',
+    cardano: 'ADAUSD',
+    ada: 'ADAUSD',
+    polkadot: 'DOTUSD',
+    dot: 'DOTUSD',
+    ripple: 'XRPUSD',
+    xrp: 'XRPUSD',
+    dogecoin: 'DOGEUSD',
+    doge: 'DOGEUSD',
+    litecoin: 'LTCUSD',
+    ltc: 'LTCUSD',
+    chainlink: 'LINKUSD',
+    link: 'LINKUSD',
+    avalanche: 'AVAXUSD',
+    avax: 'AVAXUSD',
+    polygon: 'MATICUSD',
+    matic: 'MATICUSD',
+    uniswap: 'UNIUSD',
+    uni: 'UNIUSD',
+  };
+
+  // Check for crypto keywords
+  let cryptoTicker: string | null = null;
+  for (const [name, ticker_] of Object.entries(cryptoNameToTicker)) {
+    if (q.includes(name)) {
+      cryptoTicker = ticker_;
+      break;
+    }
+  }
+  // Also check for generic crypto keyword
+  const isGenericCrypto = /\b(crypto|cryptocurrency)\b/i.test(q);
+
+  if (!ticker && !cryptoTicker && !isGenericCrypto) {
+    return []; // Can't determine what to query
+  }
+
+  // Route based on keywords
+  if (q.includes('price') || q.includes('quote') || q.includes('trading') || q.includes('stock price') || cryptoTicker) {
+    if (cryptoTicker) {
+      results.push({ tool: 'get_crypto_price_snapshot', args: { ticker: cryptoTicker } });
+    } else if (isGenericCrypto) {
+      // Default to BTC for generic crypto queries
+      results.push({ tool: 'get_crypto_price_snapshot', args: { ticker: 'BTC-USD' } });
+    } else if (ticker) {
+      results.push({ tool: 'get_price_snapshot', args: { ticker } });
+    }
+  }
+
+  if (q.includes('income') || q.includes('revenue') || q.includes('earnings') || q.includes('profit')) {
+    if (ticker) {
+      results.push({ tool: 'get_income_statements', args: { ticker, period: 'annual', limit: 4 } });
+    }
+  }
+
+  if (q.includes('balance') || q.includes('assets') || q.includes('debt') || q.includes('liabilities')) {
+    if (ticker) {
+      results.push({ tool: 'get_balance_sheets', args: { ticker, period: 'annual', limit: 4 } });
+    }
+  }
+
+  if (q.includes('cash flow') || q.includes('cashflow') || q.includes('free cash flow')) {
+    if (ticker) {
+      results.push({ tool: 'get_cash_flow_statements', args: { ticker, period: 'annual', limit: 4 } });
+    }
+  }
+
+  if (q.includes('profile') || q.includes('company') || q.includes('about') || q.includes('overview')) {
+    if (ticker) {
+      results.push({ tool: 'get_company_facts', args: { ticker } });
+    }
+  }
+
+  if (q.includes('metric') || q.includes('p/e') || q.includes('pe ratio') || q.includes('market cap') || q.includes('valuation')) {
+    if (ticker) {
+      results.push({ tool: 'get_financial_metrics_snapshot', args: { ticker } });
+    }
+  }
+
+  if (q.includes('news') || q.includes('headlines') || q.includes('latest')) {
+    if (ticker) {
+      results.push({ tool: 'get_news', args: { ticker, limit: 10 } });
+    }
+  }
+
+  if (q.includes('insider') || q.includes('insider trading') || q.includes('insider trades')) {
+    if (ticker) {
+      results.push({ tool: 'get_insider_trades', args: { ticker, limit: 20 } });
+    }
+  }
+
+  if (q.includes('estimate') || q.includes('analyst') || q.includes('forecast') || q.includes('target')) {
+    if (ticker) {
+      results.push({ tool: 'get_analyst_estimates', args: { ticker, period: 'annual', limit: 4 } });
+    }
+  }
+
+  if (q.includes('filing') || q.includes('10-k') || q.includes('10-q') || q.includes('8-k') || q.includes('sec')) {
+    if (ticker) {
+      results.push({ tool: 'get_filings', args: { ticker, limit: 10 } });
+    }
+  }
+
+  if (q.includes('segment') || q.includes('breakdown') || q.includes('by region') || q.includes('by product')) {
+    if (ticker) {
+      results.push({ tool: 'get_segmented_revenues', args: { ticker, period: 'annual', limit: 4 } });
+    }
+  }
+
+  // Default: price snapshot if we have a ticker but no specific keywords matched
+  if (results.length === 0 && ticker) {
+    results.push({ tool: 'get_price_snapshot', args: { ticker } });
+  }
+
+  return results;
+}
+
 // All finance tools available for routing
 const FINANCE_TOOLS: StructuredToolInterface[] = [
   // Price Data
@@ -108,6 +254,85 @@ export function createFinancialSearch(model: string): DynamicStructuredTool {
 - Cryptocurrency prices`,
     schema: FinancialSearchInputSchema,
     func: async (input) => {
+      // Use heuristic routing for local models (they typically don't support tool calling)
+      if (shouldUseHeuristicRouting(model)) {
+        const routes = heuristicRoute(input.query);
+        if (routes.length === 0) {
+          return formatToolResult(
+            {
+              error:
+                'Could not determine which financial data to fetch. Try including a ticker symbol (e.g., AAPL) and keywords like "price", "income", "balance sheet".',
+            },
+            []
+          );
+        }
+
+        // Execute heuristic-selected tools in parallel
+        const results = await Promise.all(
+          routes.map(async ({ tool, args }) => {
+            const toolInstance = FINANCE_TOOL_MAP.get(tool);
+            if (!toolInstance) {
+              return { tool, args, data: null, sourceUrls: [] as string[], error: `Tool ${tool} not found` };
+            }
+            try {
+              const rawResult = await toolInstance.invoke(args);
+              const parsed = JSON.parse(typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult));
+              return { tool, args, data: parsed.data, sourceUrls: (parsed.sourceUrls || []) as string[], error: null };
+            } catch (e) {
+              return {
+                tool,
+                args,
+                data: null,
+                sourceUrls: [] as string[],
+                error: e instanceof Error ? e.message : String(e),
+              };
+            }
+          })
+        );
+
+        // Format results
+        const combinedData: Record<string, unknown> = {};
+        const allUrls: string[] = [];
+        const successfulResults = results.filter((r) => r.error === null);
+        const failedResults = results.filter((r) => r.error !== null);
+
+        for (const r of successfulResults) {
+          const ticker = (r.args as Record<string, unknown>).ticker as string | undefined;
+          const key = ticker ? `${r.tool}_${ticker}` : r.tool;
+          combinedData[key] = r.data;
+          allUrls.push(...r.sourceUrls);
+        }
+
+        // If ALL tools failed, return a clear error message
+        if (successfulResults.length === 0 && failedResults.length > 0) {
+          const errorDetails = failedResults.map((r) => {
+            const ticker = (r.args as Record<string, unknown>).ticker;
+            return `${r.tool}(${ticker || 'no ticker'}): ${r.error}`;
+          });
+          return formatToolResult(
+            {
+              _error: {
+                message: 'All financial data sources failed',
+                details: errorDetails,
+                hint: 'The requested data may not be available from Financial Modeling Prep. Try a different ticker or check if FMP_API_KEY is set.',
+              },
+            },
+            []
+          );
+        }
+
+        // Add errors if some (but not all) tools failed
+        if (failedResults.length > 0) {
+          combinedData._errors = failedResults.map((r) => ({
+            tool: r.tool,
+            args: r.args,
+            error: r.error,
+          }));
+        }
+
+        return formatToolResult(combinedData, allUrls);
+      }
+
       // 1. Call LLM with finance tools bound (native tool calling)
       const response = await callLlm(input.query, {
         model,

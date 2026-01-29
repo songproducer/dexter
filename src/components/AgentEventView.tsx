@@ -143,9 +143,16 @@ export function ToolEndView({ tool, args, result, duration }: ToolEndViewProps) 
           
           // Tool-specific summaries
           if (tool === 'financial_search') {
-            summary = keys.length === 1 
-              ? `Called 1 data source` 
-              : `Called ${keys.length} data sources`;
+            // Check for error responses
+            if (parsed.data._error) {
+              const errMsg = parsed.data._error.message || 'Error';
+              const details = parsed.data._error.details;
+              summary = Array.isArray(details) ? `${errMsg}: ${details.join('; ')}` : errMsg;
+            } else {
+              summary = keys.length === 1
+                ? `Called 1 data source`
+                : `Called ${keys.length} data sources`;
+            }
           } else if (tool === 'web_search') {
             summary = `Did 1 search`;
           } else {
