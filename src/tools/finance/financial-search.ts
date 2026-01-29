@@ -68,25 +68,30 @@ function heuristicRoute(query: string): { tool: string; args: Record<string, unk
     uni: 'UNIUSD',
   };
 
-  // Check for crypto keywords
-  let cryptoTicker: string | null = null;
+  // Check for crypto keywords - collect ALL matching cryptos
+  const cryptoTickers: string[] = [];
   for (const [name, ticker_] of Object.entries(cryptoNameToTicker)) {
     if (q.includes(name)) {
-      cryptoTicker = ticker_;
-      break;
+      // Avoid duplicates (e.g., "btc" and "bitcoin" both map to BTCUSD)
+      if (!cryptoTickers.includes(ticker_)) {
+        cryptoTickers.push(ticker_);
+      }
     }
   }
   // Also check for generic crypto keyword
   const isGenericCrypto = /\b(crypto|cryptocurrency)\b/i.test(q);
 
-  if (!ticker && !cryptoTicker && !isGenericCrypto) {
+  if (!ticker && cryptoTickers.length === 0 && !isGenericCrypto) {
     return []; // Can't determine what to query
   }
 
   // Route based on keywords
-  if (q.includes('price') || q.includes('quote') || q.includes('trading') || q.includes('stock price') || cryptoTicker) {
-    if (cryptoTicker) {
-      results.push({ tool: 'get_crypto_price_snapshot', args: { ticker: cryptoTicker } });
+  if (q.includes('price') || q.includes('quote') || q.includes('trading') || q.includes('stock price') || cryptoTickers.length > 0) {
+    if (cryptoTickers.length > 0) {
+      // Add price snapshot for each crypto found
+      for (const cryptoTicker of cryptoTickers) {
+        results.push({ tool: 'get_crypto_price_snapshot', args: { ticker: cryptoTicker } });
+      }
     } else if (isGenericCrypto) {
       // Default to BTC for generic crypto queries
       results.push({ tool: 'get_crypto_price_snapshot', args: { ticker: 'BTC-USD' } });

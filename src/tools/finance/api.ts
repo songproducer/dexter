@@ -1,4 +1,4 @@
-const BASE_URL = 'https://api.financialdatasets.ai';
+const BASE_URL = 'https://financialmodelingprep.com/stable';
 
 export interface ApiResponse {
   data: Record<string, unknown>;
@@ -10,8 +10,11 @@ export async function callApi(
   params: Record<string, string | number | string[] | undefined>
 ): Promise<ApiResponse> {
   // Read API key lazily at call time (after dotenv has loaded)
-  const FINANCIAL_DATASETS_API_KEY = process.env.FINANCIAL_DATASETS_API_KEY;
+  const FMP_API_KEY = process.env.FMP_API_KEY;
   const url = new URL(`${BASE_URL}${endpoint}`);
+
+  // Add API key as query param (FMP authentication)
+  url.searchParams.append('apikey', FMP_API_KEY || '');
 
   // Add params to URL, handling arrays
   for (const [key, value] of Object.entries(params)) {
@@ -24,11 +27,7 @@ export async function callApi(
     }
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      'x-api-key': FINANCIAL_DATASETS_API_KEY || '',
-    },
-  });
+  const response = await fetch(url.toString());
 
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}`);

@@ -164,6 +164,17 @@ export class Scratchpad {
   }
 
   /**
+   * Check if a tool call with the same name and args has already been executed.
+   * Used for deduplication - prevents duplicate calls in the same query.
+   */
+  hasExecutedToolCall(toolName: string, args: Record<string, unknown>): boolean {
+    const argsKey = JSON.stringify(args);
+    return this.readEntries().some(
+      e => e.type === 'tool_result' && e.toolName === toolName && JSON.stringify(e.args) === argsKey
+    );
+  }
+
+  /**
    * Append-only write
    */
   private append(entry: ScratchpadEntry): void {

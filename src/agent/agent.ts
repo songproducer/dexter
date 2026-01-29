@@ -123,17 +123,12 @@ export class Agent {
           const heuristicTool = detectFinancialQuery(query);
           if (heuristicTool) {
             // Execute the heuristic-detected tool
-            const generator = this.executeToolCall(
+            yield* this.executeToolCall(
               heuristicTool.tool,
               heuristicTool.args,
               query,
               scratchpad
             );
-            let result = await generator.next();
-            while (!result.done) {
-              yield result.value;
-              result = await generator.next();
-            }
             // Continue to next iteration to process results
             currentPrompt = buildIterationPrompt(query, scratchpad.getToolSummaries());
             continue;
@@ -163,14 +158,7 @@ export class Agent {
       }
 
       // Execute tools and add results to scratchpad
-      const generator = this.executeToolCalls(response, query, scratchpad);
-      let result = await generator.next();
-
-      // Yield tool events
-      while (!result.done) {
-        yield result.value;
-        result = await generator.next();
-      }
+      yield* this.executeToolCalls(response, query, scratchpad);
       
       // Build iteration prompt from scratchpad (always has full accumulated history)
       currentPrompt = buildIterationPrompt(query, scratchpad.getToolSummaries());
@@ -231,7 +219,7 @@ export class Agent {
 
   /**
    * Execute all tool calls from an LLM response and add results to scratchpad.
-   * Deduplicates skill calls - each skill can only be executed once per query.
+   * Deduplicates tool calls - each tool with the same args can only be executed once per query.
    */
   private async *executeToolCalls(
     response: AIMessage,
@@ -242,19 +230,10 @@ export class Agent {
       const toolName = toolCall.name;
       const toolArgs = toolCall.args as Record<string, unknown>;
 
-      // Deduplicate skill calls - each skill can only run once per query
-      if (toolName === 'skill') {
-        const skillName = toolArgs.skill as string;
-        if (scratchpad.hasExecutedSkill(skillName)) continue;
-      }
+      // Deduplicate tool calls - skip if same tool+args already executed
+      if (scratchpad.hasExecutedToolCall(toolName, toolArgs)) continue;
 
-      const generator = this.executeToolCall(toolName, toolArgs, query, scratchpad);
-      let result = await generator.next();
-
-      while (!result.done) {
-        yield result.value;
-        result = await generator.next();
-      }
+      yield* this.executeToolCall(toolName, toolArgs, query, scratchpad);
     }
   }
 

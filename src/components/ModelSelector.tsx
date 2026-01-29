@@ -34,6 +34,11 @@ const PROVIDERS: Provider[] = [
     providerId: 'ollama',
     models: [], // Populated dynamically from local Ollama API
   },
+  {
+    displayName: 'LM Studio',
+    providerId: 'lmstudio',
+    models: [], // Populated dynamically from local LM Studio API
+  },
 ];
 
 export function getModelsForProvider(providerId: string): string[] {
@@ -114,10 +119,16 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ providerId, models, currentModel, onSelect }: ModelSelectorProps) {
-  // For Ollama, the currentModel is stored with "ollama:" prefix, but models list doesn't have it
-  const normalizedCurrentModel = providerId === 'ollama' && currentModel?.startsWith('ollama:')
-    ? currentModel.replace(/^ollama:/, '')
-    : currentModel;
+  // For Ollama/LM Studio, the currentModel is stored with prefix, but models list doesn't have it
+  const normalizedCurrentModel = (() => {
+    if (providerId === 'ollama' && currentModel?.startsWith('ollama:')) {
+      return currentModel.replace(/^ollama:/, '');
+    }
+    if (providerId === 'lmstudio' && currentModel?.startsWith('lmstudio:')) {
+      return currentModel.replace(/^lmstudio:/, '');
+    }
+    return currentModel;
+  })();
 
   const [selectedIndex, setSelectedIndex] = useState(() => {
     if (normalizedCurrentModel) {
@@ -150,11 +161,16 @@ export function ModelSelector({ providerId, models, currentModel, onSelect }: Mo
         <Text color={colors.primary} bold>
           Select model for {providerName}
         </Text>
-        <Box marginTop={1}>
-          <Text color={colors.muted}>No models available. </Text>
+        <Box marginTop={1} flexDirection="column">
+          <Text color={colors.muted}>No models available.</Text>
           {providerId === 'ollama' && (
             <Text color={colors.muted}>
               Make sure Ollama is running and you have models downloaded.
+            </Text>
+          )}
+          {providerId === 'lmstudio' && (
+            <Text color={colors.muted}>
+              Make sure LM Studio is running and you have a model loaded.
             </Text>
           )}
         </Box>

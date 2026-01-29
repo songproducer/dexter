@@ -10,9 +10,9 @@ const FinancialStatementsInputSchema = z.object({
       "The stock ticker symbol to fetch financial statements for. For example, 'AAPL' for Apple."
     ),
   period: z
-    .enum(['annual', 'quarterly', 'ttm'])
+    .enum(['annual', 'quarterly'])
     .describe(
-      "The reporting period for the financial statements. 'annual' for yearly, 'quarterly' for quarterly, and 'ttm' for trailing twelve months."
+      "The reporting period for the financial statements. 'annual' for yearly, 'quarterly' for quarterly."
     ),
   limit: z
     .number()
@@ -20,37 +20,13 @@ const FinancialStatementsInputSchema = z.object({
     .describe(
       'Maximum number of report periods to return (default: 10). Returns the most recent N periods based on the period type.'
     ),
-  report_period_gt: z
-    .string()
-    .optional()
-    .describe('Filter for financial statements with report periods after this date (YYYY-MM-DD).'),
-  report_period_gte: z
-    .string()
-    .optional()
-    .describe(
-      'Filter for financial statements with report periods on or after this date (YYYY-MM-DD).'
-    ),
-  report_period_lt: z
-    .string()
-    .optional()
-    .describe('Filter for financial statements with report periods before this date (YYYY-MM-DD).'),
-  report_period_lte: z
-    .string()
-    .optional()
-    .describe(
-      'Filter for financial statements with report periods on or before this date (YYYY-MM-DD).'
-    ),
 });
 
 function createParams(input: z.infer<typeof FinancialStatementsInputSchema>): Record<string, string | number | undefined> {
   return {
-    ticker: input.ticker,
+    symbol: input.ticker,
     period: input.period,
     limit: input.limit,
-    report_period_gt: input.report_period_gt,
-    report_period_gte: input.report_period_gte,
-    report_period_lt: input.report_period_lt,
-    report_period_lte: input.report_period_lte,
   };
 }
 
@@ -60,8 +36,10 @@ export const getIncomeStatements = new DynamicStructuredTool({
   schema: FinancialStatementsInputSchema,
   func: async (input) => {
     const params = createParams(input);
-    const { data, url } = await callApi('/financials/income-statements/', params);
-    return formatToolResult(data.income_statements || {}, [url]);
+    const { data, url } = await callApi('/income-statement', params);
+    // FMP returns array directly
+    const result = Array.isArray(data) ? data : [];
+    return formatToolResult(result, [url]);
   },
 });
 
@@ -71,8 +49,10 @@ export const getBalanceSheets = new DynamicStructuredTool({
   schema: FinancialStatementsInputSchema,
   func: async (input) => {
     const params = createParams(input);
-    const { data, url } = await callApi('/financials/balance-sheets/', params);
-    return formatToolResult(data.balance_sheets || {}, [url]);
+    const { data, url } = await callApi('/balance-sheet-statement', params);
+    // FMP returns array directly
+    const result = Array.isArray(data) ? data : [];
+    return formatToolResult(result, [url]);
   },
 });
 
@@ -82,19 +62,31 @@ export const getCashFlowStatements = new DynamicStructuredTool({
   schema: FinancialStatementsInputSchema,
   func: async (input) => {
     const params = createParams(input);
-    const { data, url } = await callApi('/financials/cash-flow-statements/', params);
-    return formatToolResult(data.cash_flow_statements || {}, [url]);
+    const { data, url } = await callApi('/cash-flow-statement', params);
+    // FMP returns array directly
+    const result = Array.isArray(data) ? data : [];
+    return formatToolResult(result, [url]);
   },
 });
 
 export const getAllFinancialStatements = new DynamicStructuredTool({
   name: 'get_all_financial_statements',
-  description: `Retrieves all three financial statements (income statements, balance sheets, and cash flow statements) for a company in a single API call. This is more efficient than calling each statement type separately when you need all three for comprehensive financial analysis.`,
+  description: `Retrieves all three financial statements (income statements, balance sheets, and cash flow statements) for a company. Useful when you need all three for comprehensive financial analysis.`,
   schema: FinancialStatementsInputSchema,
   func: async (input) => {
     const params = createParams(input);
-    const { data, url } = await callApi('/financials/', params);
-    return formatToolResult(data.financials || {}, [url]);
+    // FMP doesn't have a combined endpoint, fetch all three in parallel
+    const [incomeResult, balanceResult, cashFlowResult] = await Promise.all([
+      callApi('/income-statement', params),
+      callApi('/balance-sheet-statement', params),
+      callApi('/cash-flow-statement', params),
+    ]);
+    const result = {
+      income_statements: Array.isArray(incomeResult.data) ? incomeResult.data : [],
+      balance_sheets: Array.isArray(balanceResult.data) ? balanceResult.data : [],
+      cash_flow_statements: Array.isArray(cashFlowResult.data) ? cashFlowResult.data : [],
+    };
+    return formatToolResult(result, [incomeResult.url, balanceResult.url, cashFlowResult.url]);
   },
 });
 
